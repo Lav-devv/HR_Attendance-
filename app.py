@@ -3,7 +3,7 @@ import zipfile
 import importlib
 import inspect
 import calendar
-from datetime import date, timedelta
+from datetime import date
 import pandas as pd
 import streamlit as st
 import rules
@@ -14,12 +14,17 @@ from parser import parse_chat
 from report import generate_shareable_report, generate_monthly_shareable_report
 from auth import register_user, authenticate_user, get_user_workspace, delete_user_data
 
+LOGO_PATH = "logo.png"
+
 st.set_page_config(
     page_title="TechNaka Attendance Analyzer",
-    page_icon="logo.png" if os.path.exists("logo.png") else "📊",
+    page_icon=LOGO_PATH if os.path.exists(LOGO_PATH) else "📊",
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+if os.path.exists(LOGO_PATH):
+    st.logo(LOGO_PATH, size="large")
 
 # --- CUSTOM DARK FOREST UI STYLING ---
 st.markdown("""
@@ -33,17 +38,8 @@ st.markdown("""
         border-right: 1px solid #173B33;
     }
     .block-container {
-        padding-top: 1.5rem;
+        padding-top: 1.4rem;
         padding-bottom: 2rem;
-    }
-    .logo-box {
-        background-color: #FFFFFF;
-        padding: 10px;
-        border-radius: 14px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
     }
     .kpi-card {
         background: #0B211C;
@@ -69,13 +65,6 @@ st.markdown("""
         color: #FFFFFF;
         line-height: 1.1;
     }
-    .panel-card {
-        background: #0A1F1A;
-        border: 1.5px solid #163830;
-        border-radius: 14px;
-        padding: 18px 20px;
-        margin-bottom: 16px;
-    }
     .cal-box {
         background: #0A1F1A;
         border: 1.5px solid #1B4239;
@@ -95,10 +84,6 @@ st.markdown("""
         font-weight: 600 !important;
         border-radius: 8px !important;
         border: none !important;
-        width: 100%;
-    }
-    div.stButton > button {
-        border-radius: 8px !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -110,7 +95,7 @@ if "username" not in st.session_state:
 
 
 def render_calendar_widget(focus_date: date):
-    cal = calendar.Calendar(firstweekday=6)  # Sunday first
+    cal = calendar.Calendar(firstweekday=6)
     month_days = cal.monthdayscalendar(focus_date.year, focus_date.month)
     month_label = focus_date.strftime("%b %d, %Y")
 
@@ -152,12 +137,13 @@ def render_calendar_widget(focus_date: date):
 if not st.session_state.authenticated or not st.session_state.username:
     _, mid, _ = st.columns([1, 1.15, 1])
     with mid:
-        st.markdown('<div class="panel-card" style="text-align:center;">', unsafe_allow_html=True)
-        if os.path.exists("logo.png"):
-            st.image("logo.png", width=130)
-        st.markdown("### TechNaka Attendance Analyzer")
-        st.caption("Private Workspace: Your uploads and employee records are isolated to your account.")
-        st.markdown('</div>', unsafe_allow_html=True)
+        with st.container(border=True):
+            if os.path.exists(LOGO_PATH):
+                st.image(LOGO_PATH, width=140)
+            else:
+                st.warning("Place `logo.png` in the project folder to display the TechNaka logo.")
+            st.markdown("### TechNaka Attendance Analyzer")
+            st.caption("Private Workspace: Your uploads and employee records are isolated to your account.")
 
         tab_login, tab_register = st.tabs(["Login", "Create Account"])
 
@@ -215,13 +201,13 @@ else:
             st.success("Private data wiped.")
             st.rerun()
 
-    # --- TOP HEADER BAR ---
-    h_logo, h_title, h_right = st.columns([1.2, 6.3, 2.5])
+    # --- TOP HEADER BAR WITH LOGO ---
+    h_logo, h_title, h_right = st.columns([1.3, 6.2, 2.5])
     with h_logo:
-        if os.path.exists("logo.png"):
-            st.markdown('<div class="logo-box">', unsafe_allow_html=True)
-            st.image("logo.png", use_container_width=True)
-            st.markdown('</div>', unsafe_allow_html=True)
+        if os.path.exists(LOGO_PATH):
+            st.image(LOGO_PATH, use_container_width=True)
+        else:
+            st.caption("logo.png missing")
 
     with h_title:
         st.markdown(
@@ -240,11 +226,6 @@ else:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # Default KPI values before ZIP upload
-    total_staff = 0
-    present_cnt = 0
-    late_cnt = 0
-    pending_cnt = 0
     cal_focus_date = date.today()
     attendance_df = pd.DataFrame()
     daily_report = pd.DataFrame()
@@ -290,14 +271,15 @@ else:
             cal_focus_date = default_dt
 
     with k1:
+        staff_val = 0 if attendance_df.empty else len(attendance_df["Employee"].unique())
         st.markdown(f"""
         <div class="kpi-card kpi-green">
             <div class="kpi-title">Total Active Staff</div>
-            <div class="kpi-value">{total_staff if attendance_df.empty else len(attendance_df['Employee'].unique())}</div>
+            <div class="kpi-value">{staff_val}</div>
         </div>""", unsafe_allow_html=True)
 
     with k2:
-        p_val = present_cnt if attendance_df.empty else int((attendance_df["Status"] == "Present").sum())
+        p_val = 0 if attendance_df.empty else int((attendance_df["Status"] == "Present").sum())
         st.markdown(f"""
         <div class="kpi-card kpi-green">
             <div class="kpi-title">Present Today</div>
@@ -305,7 +287,7 @@ else:
         </div>""", unsafe_allow_html=True)
 
     with k3:
-        l_val = late_cnt if attendance_df.empty else int((attendance_df["Status"] == "Late").sum())
+        l_val = 0 if attendance_df.empty else int((attendance_df["Status"] == "Late").sum())
         st.markdown(f"""
         <div class="kpi-card kpi-gold">
             <div class="kpi-title">Late</div>
@@ -313,7 +295,7 @@ else:
         </div>""", unsafe_allow_html=True)
 
     with k4:
-        pend_val = pending_cnt if attendance_df.empty else int((attendance_df["Status"] == "Pending review").sum())
+        pend_val = 0 if attendance_df.empty else int((attendance_df["Status"] == "Pending review").sum())
         st.markdown(f"""
         <div class="kpi-card">
             <div class="kpi-title">Pending Review</div>
@@ -325,110 +307,107 @@ else:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # --- MAIN WORKSPACE GRID: DAILY TABLE (LEFT) + SUMMARY & EXPORT (RIGHT) ---
+    # --- MAIN WORKSPACE GRID ---
     main_left, main_right = st.columns([6.3, 3.7])
 
     with main_left:
-        st.markdown('<div class="panel-card">', unsafe_allow_html=True)
-        if not attendance_df.empty:
-            dates = sorted(attendance_df["Date"].unique(), reverse=True)
-            selected_date = st.selectbox("Date-picker", dates, key="selected_date_box")
-            st.markdown(f"### Daily Attendance ({selected_date})")
+        with st.container(border=True):
+            if not attendance_df.empty:
+                dates = sorted(attendance_df["Date"].unique(), reverse=True)
+                selected_date = st.selectbox("Date-picker", dates, key="selected_date_box")
+                st.markdown(f"### Daily Attendance ({selected_date})")
 
-            daily_report = attendance_df[attendance_df["Date"] == selected_date].reset_index(drop=True)
-            daily_report.index = daily_report.index + 1
+                daily_report = attendance_df[attendance_df["Date"] == selected_date].reset_index(drop=True)
+                daily_report.index = daily_report.index + 1
 
-            display_df = daily_report.drop(columns=["Timestamp"], errors="ignore").copy()
-            display_df.insert(0, "S.No", display_df.index)
-            st.dataframe(display_df, use_container_width=True, hide_index=True)
-        else:
-            st.markdown("### Daily Attendance")
-            st.info("Upload your WhatsApp Attendance (.zip) file from the sidebar to view daily records.")
-        st.markdown('</div>', unsafe_allow_html=True)
+                display_df = daily_report.drop(columns=["Timestamp"], errors="ignore").copy()
+                display_df.insert(0, "S.No", display_df.index)
+                st.dataframe(display_df, use_container_width=True, hide_index=True)
+            else:
+                st.markdown("### Daily Attendance")
+                st.info("Upload your WhatsApp Attendance (.zip) file from the sidebar to view daily records.")
 
     with main_right:
         # Daily Shareable Summary Card
-        st.markdown('<div class="panel-card">', unsafe_allow_html=True)
-        s_col1, s_col2 = st.columns([1.4, 1])
-        with s_col1:
-            st.markdown("### Daily Shareable Summary")
-        with s_col2:
-            st.markdown(
-                "<div style='background:#4CAF50;color:#081A16;font-weight:700;"
-                "padding:6px 10px;border-radius:8px;text-align:center;font-size:0.82rem;'>"
-                "Copy to WhatsApp</div>",
-                unsafe_allow_html=True,
-            )
+        with st.container(border=True):
+            s_col1, s_col2 = st.columns([1.4, 1])
+            with s_col1:
+                st.markdown("### Daily Shareable Summary")
+            with s_col2:
+                st.markdown(
+                    "<div style='background:#4CAF50;color:#081A16;font-weight:700;"
+                    "padding:6px 10px;border-radius:8px;text-align:center;font-size:0.82rem;'>"
+                    "Copy to WhatsApp</div>",
+                    unsafe_allow_html=True,
+                )
 
-        if not daily_report.empty and selected_date is not None:
-            report_text = generate_shareable_report(daily_report, selected_date)
-            st.text_area("WhatsApp Report", report_text, height=195, label_visibility="collapsed")
-        else:
-            st.text_area("WhatsApp Report", "No daily report generated yet.", height=195, label_visibility="collapsed")
-        st.markdown('</div>', unsafe_allow_html=True)
+            if not daily_report.empty and selected_date is not None:
+                report_text = generate_shareable_report(daily_report, selected_date)
+                st.text_area("WhatsApp Report", report_text, height=195, label_visibility="collapsed")
+            else:
+                st.text_area("WhatsApp Report", "No daily report generated yet.", height=195, label_visibility="collapsed")
 
-        # Export Actions Card
-        st.markdown('<div class="panel-card">', unsafe_allow_html=True)
-        st.markdown("### Export Actions")
-        if not daily_report.empty and selected_date is not None:
-            csv_data = daily_report.drop(columns=["Timestamp"], errors="ignore").to_csv(index=False).encode("utf-8")
-            st.download_button(
-                label="⬇  Download CSV",
-                data=csv_data,
-                file_name=f"{current_user}_attendance_{selected_date}.csv",
-                mime="text/csv",
-                use_container_width=True,
-            )
-        else:
-            st.button("⬇  Download CSV", disabled=True, use_container_width=True)
+        # Export Actions Card (Always visible)
+        with st.container(border=True):
+            st.markdown("### Export Actions")
 
-        monthly_summary_df = pd.DataFrame()
-        selected_month = None
-        if not attendance_df.empty:
-            attendance_df["Month"] = pd.to_datetime(attendance_df["Date"]).dt.to_period("M").astype(str)
-            months = sorted(attendance_df["Month"].unique(), reverse=True)
-            selected_month = months[0]
-            monthly_summary_df = rules.calculate_monthly_attendance(attendance_df, selected_month, user_workspace)
+            if not daily_report.empty and selected_date is not None:
+                csv_data = daily_report.drop(columns=["Timestamp"], errors="ignore").to_csv(index=False).encode("utf-8")
+                st.download_button(
+                    label="⬇  Download CSV",
+                    data=csv_data,
+                    file_name=f"{current_user}_attendance_{selected_date}.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                )
+            else:
+                st.button("⬇  Download CSV", disabled=True, use_container_width=True)
 
-        if not monthly_summary_df.empty and selected_month is not None:
-            monthly_csv = monthly_summary_df.to_csv(index=False).encode("utf-8")
-            st.download_button(
-                label="%  Download Monthly Summary %",
-                data=monthly_csv,
-                file_name=f"{current_user}_monthly_{selected_month}.csv",
-                mime="text/csv",
-                use_container_width=True,
-            )
-        else:
-            st.button("%  Download Monthly Summary %", disabled=True, use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+            monthly_summary_df = pd.DataFrame()
+            selected_month = None
+            if not attendance_df.empty:
+                attendance_df["Month"] = pd.to_datetime(attendance_df["Date"]).dt.to_period("M").astype(str)
+                months = sorted(attendance_df["Month"].unique(), reverse=True)
+                selected_month = months[0]
+                monthly_summary_df = rules.calculate_monthly_attendance(attendance_df, selected_month, user_workspace)
+
+            if not monthly_summary_df.empty and selected_month is not None:
+                monthly_csv = monthly_summary_df.to_csv(index=False).encode("utf-8")
+                st.download_button(
+                    label="%  Download Monthly Summary %",
+                    data=monthly_csv,
+                    file_name=f"{current_user}_monthly_{selected_month}.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                )
+            else:
+                st.button("%  Download Monthly Summary %", disabled=True, use_container_width=True)
 
     # --- MONTHLY ATTENDANCE SUMMARY SECTION ---
     if not attendance_df.empty:
-        st.markdown('<div class="panel-card">', unsafe_allow_html=True)
-        st.header("📊 Monthly Attendance Summary (%)")
-        months = sorted(attendance_df["Month"].unique(), reverse=True)
-        chosen_month = st.selectbox("Select Month for Overall Percentage", months, key="monthly_picker")
-        m_df = rules.calculate_monthly_attendance(attendance_df, chosen_month, user_workspace)
+        with st.container(border=True):
+            st.header("📊 Monthly Attendance Summary (%)")
+            months = sorted(attendance_df["Month"].unique(), reverse=True)
+            chosen_month = st.selectbox("Select Month for Overall Percentage", months, key="monthly_picker")
+            m_df = rules.calculate_monthly_attendance(attendance_df, chosen_month, user_workspace)
 
-        if not m_df.empty:
-            m_df = m_df.reset_index(drop=True)
-            m_df.index = m_df.index + 1
-            st.dataframe(
-                m_df,
-                use_container_width=True,
-                column_config={
-                    "Attendance %": st.column_config.ProgressColumn(
-                        "Attendance %",
-                        format="%.2f%%",
-                        min_value=0,
-                        max_value=100,
-                    )
-                },
-            )
-            st.text_area(
-                "Monthly WhatsApp Summary",
-                generate_monthly_shareable_report(m_df, chosen_month),
-                height=160,
-            )
-        st.markdown('</div>', unsafe_allow_html=True)
+            if not m_df.empty:
+                m_df = m_df.reset_index(drop=True)
+                m_df.index = m_df.index + 1
+                st.dataframe(
+                    m_df,
+                    use_container_width=True,
+                    column_config={
+                        "Attendance %": st.column_config.ProgressColumn(
+                            "Attendance %",
+                            format="%.2f%%",
+                            min_value=0,
+                            max_value=100,
+                        )
+                    },
+                )
+                st.text_area(
+                    "Monthly WhatsApp Summary",
+                    generate_monthly_shareable_report(m_df, chosen_month),
+                    height=160,
+                )
