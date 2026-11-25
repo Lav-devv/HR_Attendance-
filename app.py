@@ -1,4 +1,5 @@
 import os
+import json
 import zipfile
 import importlib
 import inspect
@@ -15,6 +16,7 @@ from report import generate_shareable_report, generate_monthly_shareable_report
 from auth import register_user, authenticate_user, get_user_workspace, delete_user_data
 
 LOGO_PATH = "logo.png"
+REVIEWED_FILE = "reviewed_overrides.json"
 
 st.set_page_config(
     page_title="TechNaka Attendance Analyzer",
@@ -25,6 +27,27 @@ st.set_page_config(
 
 if os.path.exists(LOGO_PATH):
     st.logo(LOGO_PATH, size="large")
+
+
+def load_reviewed_map(workspace_dir: str) -> dict:
+    path = os.path.join(workspace_dir, REVIEWED_FILE)
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    return data
+        except Exception:
+            pass
+    return {}
+
+
+def save_reviewed_map(workspace_dir: str, data: dict) -> None:
+    os.makedirs(workspace_dir, exist_ok=True)
+    path = os.path.join(workspace_dir, REVIEWED_FILE)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+
 
 # --- CUSTOM DARK FOREST UI STYLING ---
 st.markdown("""
@@ -177,6 +200,7 @@ else:
     current_user = st.session_state.username
     user_workspace = get_user_workspace(current_user)
     private_emp_path = os.path.join(user_workspace, "employees.csv")
+    reviewed_map = load_reviewed_map(user_workspace)
 
     with st.sidebar:
         st.markdown("### Upload Employees (.csv)")
@@ -254,6 +278,15 @@ else:
                             attendance_df = rules.apply_attendance_rules(chat_df, workspace_dir=user_workspace)
                         else:
                             attendance_df = rules.apply_attendance_rules(chat_df)
+
+                        if reviewed_map:
+                            def _apply_saved_review(row):
+                                key = f"{row['Date']}|{str(row['Employee']).strip()}"
+                                if key in reviewed_map and row["Status"] == "Pending review":
+                                    return "Reviewed"
+                                return row["Status"]
+
+                            attendance_df["Status"] = attendance_df.apply(_apply_saved_review, axis=1)
                     else:
                         st.warning("Chat file opened, but no valid messages matched the date/time format.")
         except Exception as e:
@@ -279,7 +312,7 @@ else:
         </div>""", unsafe_allow_html=True)
 
     with k2:
-        p_val = 0 if attendance_df.empty else int((attendance_df["Status"] == "Present").sum())
+        p_val = 0 if attendance_df.empty else int(attendance_df["Status"].isin(["Present", "Reviewed"]).sum())
         st.markdown(f"""
         <div class="kpi-card kpi-green">
             <div class="kpi-title">Present Today</div>
@@ -323,12 +356,40 @@ else:
                 display_df = daily_report.drop(columns=["Timestamp"], errors="ignore").copy()
                 display_df.insert(0, "S.No", display_df.index)
                 st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+                # Persistent Reviewed action for Pending review rows
+                pending_rows = daily_report[daily_report["Status"] == "Pending review"]
+                if not pending_rows.empty:
+                    st.markdown("#### Mark Pending as Reviewed")
+                    pending_choices = [
+                        f"{row['Employee']} ({row['Time']})"
+                        for _, row in pending_rows.iterrows()
+                    ]
+                    selected_pending = st.multiselect(
+                        "Select employees to mark as Reviewed (permanently saved in your private workspace)",
+                        options=pending_choices,
+                        key=f"pending_review_{selected_date}",
+                    )
+                    b_col1, b_col2 = st.columns([1.2, 1.8])
+                    with b_col1:
+                        if st.button("✅ Mark Selected as Reviewed", use_container_width=True, disabled=not selected_pending):
+                            for item in selected_pending:
+                                emp_name = item.rsplit(" (", 1)[0].strip()
+                                reviewed_map[f"{selected_date}|{emp_name}"] = True
+                            save_reviewed_map(user_workspace, reviewed_map)
+                            st.rerun()
+                    with b_col2:
+                        if st.button("✓ Mark All Pending Today as Reviewed", use_container_width=True):
+                            for _, row in pending_rows.iterrows():
+                                emp_name = str(row["Employee"]).strip()
+                                reviewed_map[f"{selected_date}|{emp_name}"] = True
+                            save_reviewed_map(user_workspace, reviewed_map)
+                            st.rerun()
             else:
                 st.markdown("### Daily Attendance")
                 st.info("Upload your WhatsApp Attendance (.zip) file from the sidebar to view daily records.")
 
     with main_right:
-        # Daily Shareable Summary Card
         with st.container(border=True):
             s_col1, s_col2 = st.columns([1.4, 1])
             with s_col1:
@@ -347,7 +408,6 @@ else:
             else:
                 st.text_area("WhatsApp Report", "No daily report generated yet.", height=195, label_visibility="collapsed")
 
-        # Export Actions Card (Always visible)
         with st.container(border=True):
             st.markdown("### Export Actions")
 
