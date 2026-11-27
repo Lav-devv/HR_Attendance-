@@ -86,7 +86,6 @@ def authenticate_user(username: str, password: str):
     if salt and stored_hash:
         is_valid = _hash_password(password, salt) == stored_hash
     elif stored_hash and not salt:
-        # Legacy / plain or un-salted fallback: upgrade on successful login
         plain_sha = hashlib.sha256((password or "").encode("utf-8")).hexdigest()
         if password == stored_hash or plain_sha == stored_hash:
             is_valid = True
@@ -119,4 +118,26 @@ def reset_password(username: str, verification_input: str, new_password: str):
     is_master_match = verify_clean == MASTER_RECOVERY_KEY.lower()
     is_username_only_fallback = (not saved_emp_name) and (verify_clean == clean_user)
 
-    if not (is_emp_match or is_master_match)
+    if not (is_emp_match or is_master_match or is_username_only_fallback):
+        return False, "Verification failed. Enter your registered Employee Name or recovery key."
+
+    new_salt = os.urandom(8).hex()
+    user_data["salt"] = new_salt
+    user_data["password_hash"] = _hash_password(new_password, new_salt)
+    users[clean_user] = user_data
+    _save_users(users)
+    return True, "Password updated successfully. You can now log in."
+
+
+def get_user_workspace(username: str) -> str:
+    clean_user = (username or "default").strip().lower()
+    path = os.path.join(WORKSPACES_DIR, clean_user)
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def delete_user_data(username: str) -> None:
+    path = get_user_workspace(username)
+    if os.path.exists(path):
+        shutil.rmtree(path, ignore_errors=True)
+        os.makedirs(path, exist_ok=True)
