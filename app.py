@@ -104,6 +104,7 @@ def filter_df_for_viewer(df: pd.DataFrame, username: str, employee_name: str) ->
 
 
 # --- CUSTOM DARK FOREST UI STYLING ---
+# --- CUSTOM DARK FOREST UI STYLING ---
 st.markdown(
     """
 <style>
@@ -170,4 +171,20 @@ st.markdown(
         display: inline-block;
         background: #1E293B;
         color: #CBD5E1;
-        border: 1px solid #
+        border: 1px solid #475569;
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+    div.stDownloadButton > button {
+        background-color: #FFFFFF !important;
+        color: #081A16 !important;
+        font-weight: 600 !important;
+        border-radius: 8px !important;
+        border: none !important;
+    }
+</style>
+""",
+    unsafe_allow_html=True,
+)
