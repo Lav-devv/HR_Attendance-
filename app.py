@@ -13,13 +13,7 @@ importlib.reload(rules)
 
 from parser import parse_chat
 from report import generate_shareable_report, generate_monthly_shareable_report
-from auth import (
-    register_user,
-    authenticate_user,
-    reset_password,
-    get_user_workspace,
-    delete_user_data,
-)
+from auth import register_user, authenticate_user, reset_password, get_user_workspace, delete_user_data
 
 LOGO_PATH = "logo.png"
 REVIEWED_FILE = "reviewed_overrides.json"
