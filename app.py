@@ -103,8 +103,6 @@ def filter_df_for_viewer(df: pd.DataFrame, username: str, employee_name: str) ->
     return df[mask].copy()
 
 
-# --- CUSTOM DARK FOREST UI STYLING ---
-# --- CUSTOM DARK FOREST UI STYLING ---
 st.markdown(
     """
 <style>
@@ -116,75 +114,4 @@ st.markdown(
         background-color: #091D19;
         border-right: 1px solid #173B33;
     }
-    .block-container {
-        padding-top: 1.4rem;
-        padding-bottom: 2rem;
-    }
-    .kpi-card {
-        background: #0B211C;
-        border: 1.5px solid #1C473D;
-        border-radius: 14px;
-        padding: 14px 16px;
-        min-height: 105px;
-    }
-    .kpi-green {
-        border-color: #2E7D32;
-    }
-    .kpi-gold {
-        border-color: #C99A2E;
-    }
-    .kpi-title {
-        font-size: 0.85rem;
-        color: #B7CEC8;
-        margin-bottom: 6px;
-    }
-    .kpi-value {
-        font-size: 2rem;
-        font-weight: 700;
-        color: #FFFFFF;
-        line-height: 1.1;
-    }
-    .cal-box {
-        background: #0A1F1A;
-        border: 1.5px solid #1B4239;
-        border-radius: 14px;
-        padding: 12px 14px;
-        font-size: 0.78rem;
-    }
-    .user-meta {
-        text-align: right;
-        font-size: 0.82rem;
-        color: #9EB8B1;
-        margin-top: 4px;
-    }
-    .role-badge-admin {
-        display: inline-block;
-        background: #1B4332;
-        color: #95D5B2;
-        border: 1px solid #40916C;
-        padding: 2px 8px;
-        border-radius: 999px;
-        font-size: 0.75rem;
-        font-weight: 600;
-    }
-    .role-badge-viewer {
-        display: inline-block;
-        background: #1E293B;
-        color: #CBD5E1;
-        border: 1px solid #475569;
-        padding: 2px 8px;
-        border-radius: 999px;
-        font-size: 0.75rem;
-        font-weight: 600;
-    }
-    div.stDownloadButton > button {
-        background-color: #FFFFFF !important;
-        color: #081A16 !important;
-        font-weight: 600 !important;
-        border-radius: 8px !important;
-        border: none !important;
-    }
-</style>
-""",
-    unsafe_allow_html=True,
-)
+    .block
