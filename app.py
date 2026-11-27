@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import zipfile
 import importlib
@@ -90,16 +91,29 @@ def save_reviewed_map(workspace_dir: str, data: dict) -> None:
         json.dump(data, f, indent=2)
 
 
+def _norm_token(val: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", (val or "").strip().lower())
+
+
 def filter_df_for_viewer(df: pd.DataFrame, username: str, employee_name: str) -> pd.DataFrame:
     if df.empty or "Employee" not in df.columns:
         return df.iloc[0:0].copy()
 
-    targets = [t.strip().lower() for t in [employee_name, username] if t and t.strip()]
-    if not targets:
+    raw_targets = [t.strip().lower() for t in [employee_name, username] if t and t.strip()]
+    norm_targets = [_norm_token(t) for t in raw_targets if _norm_token(t)]
+    if not raw_targets and not norm_targets:
         return df.iloc[0:0].copy()
 
-    emp_series = df["Employee"].astype(str).str.strip().str.lower()
-    mask = emp_series.isin(targets) | emp_series.apply(lambda x: any(t in x for t in targets))
+    def _matches(emp_val) -> bool:
+        s = str(emp_val or "").strip().lower()
+        ns = _norm_token(s)
+        if any(s == rt or rt in s for rt in raw_targets):
+            return True
+        if any(ns == nt or (len(nt) >= 3 and nt in ns) for nt in norm_targets):
+            return True
+        return False
+
+    mask = df["Employee"].apply(_matches)
     return df[mask].copy()
 
 
@@ -304,16 +318,17 @@ else:
     current_emp_name = st.session_state.employee_name
     is_admin = current_role == "admin"
 
+    users_db = {}
+    if os.path.exists("users.json"):
+        try:
+            with open("users.json", "r", encoding="utf-8") as f:
+                users_db = json.load(f)
+        except Exception:
+            users_db = {}
+
     if is_admin:
         data_workspace = _safe_workspace(current_user)
     else:
-        users_db = {}
-        if os.path.exists("users.json"):
-            try:
-                with open("users.json", "r", encoding="utf-8") as f:
-                    users_db = json.load(f)
-            except Exception:
-                users_db = {}
         admin_user = next(
             (u for u, info in users_db.items() if isinstance(info, dict) and info.get("role") == "admin"),
             current_user,
@@ -362,6 +377,8 @@ else:
                 st.rerun()
         else:
             st.info("You have view-only access. Only an Admin can upload files, edit statuses, or clear workspace data.")
+            if current_emp_name:
+                st.caption(f"Linked Name: **{current_emp_name}**")
             if os.path.exists(uploaded_zip_path):
                 uploaded_zip = uploaded_zip_path
 
@@ -395,6 +412,7 @@ else:
 
     cal_focus_date = date.today()
     attendance_df = pd.DataFrame()
+    all_employees_in_chat = []
     daily_report = pd.DataFrame()
     selected_date = None
 
@@ -435,13 +453,26 @@ else:
 
                             attendance_df[["Status", "Reviewed By"]] = attendance_df.apply(_apply_saved_review, axis=1)
 
+                        if "Employee" in attendance_df.columns:
+                            all_employees_in_chat = sorted(attendance_df["Employee"].dropna().astype(str).unique().tolist())
+
                         if not is_admin:
-                            attendance_df = filter_df_for_viewer(attendance_df, current_user, current_emp_name)
+                            filtered_df = filter_df_for_viewer(attendance_df, current_user, current_emp_name)
+                            if filtered_df.empty and all_employees_in_chat:
+                                st.warning(
+                                    f"No exact record found for '{current_emp_name or current_user}'. "
+                                    f"Detected employees in chat: {', '.join(all_employees_in_chat[:10])}"
+                                )
+                            attendance_df = filtered_df
                     else:
                         st.warning("Chat file opened, but no valid messages matched the date/time format.")
         except Exception as e:
             st.error(f"Error reading ZIP file: {e}")
 
+    if not attendance_df.empty and "Date" in attendance_df.columns:
+        attendance_df["Month"] = pd.to_datetime(attendance_df["Date"]).dt.to_period("M").astype(str)
+
+    # --- KPI ROW + MINI CALENDAR ---
     k1, k2, k3, k4, kcal = st.columns([1.4, 1.4, 1.4, 1.4, 2.2])
 
     if not attendance_df.empty:
@@ -501,6 +532,7 @@ else:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
+    # --- MAIN WORKSPACE GRID ---
     main_left, main_right = st.columns([6.3, 3.7])
 
     with main_left:
@@ -513,7 +545,7 @@ else:
                 daily_report = attendance_df[attendance_df["Date"] == selected_date].reset_index(drop=True)
                 daily_report.index = daily_report.index + 1
 
-                display_df = daily_report.drop(columns=["Timestamp"], errors="ignore").copy()
+                display_df = daily_report.drop(columns=["Timestamp", "Month"], errors="ignore").copy()
                 display_df.insert(0, "S.No", display_df.index)
                 st.dataframe(display_df, use_container_width=True, hide_index=True)
 
@@ -560,7 +592,7 @@ else:
                 if is_admin:
                     st.info("Upload your WhatsApp Attendance (.zip) file from the sidebar to view daily records.")
                 else:
-                    st.info("No matching attendance records found for your account yet.")
+                    st.info("No matching daily attendance records found for your account yet.")
 
     with main_right:
         with st.container(border=True):
@@ -585,7 +617,7 @@ else:
             st.markdown("### Export Actions")
 
             if not daily_report.empty and selected_date is not None:
-                csv_data = daily_report.drop(columns=["Timestamp"], errors="ignore").to_csv(index=False).encode("utf-8")
+                csv_data = daily_report.drop(columns=["Timestamp", "Month"], errors="ignore").to_csv(index=False).encode("utf-8")
                 st.download_button(
                     label="⬇  Download CSV",
                     data=csv_data,
@@ -598,8 +630,7 @@ else:
 
             monthly_summary_df = pd.DataFrame()
             selected_month = None
-            if not attendance_df.empty:
-                attendance_df["Month"] = pd.to_datetime(attendance_df["Date"]).dt.to_period("M").astype(str)
+            if not attendance_df.empty and "Month" in attendance_df.columns:
                 months = sorted(attendance_df["Month"].unique(), reverse=True)
                 selected_month = months[0]
                 monthly_summary_df = rules.calculate_monthly_attendance(attendance_df, selected_month, data_workspace)
@@ -616,8 +647,8 @@ else:
             else:
                 st.button("%  Download Monthly Summary %", disabled=True, use_container_width=True)
 
-    # --- MONTHLY ATTENDANCE SUMMARY SECTION ---
-    if not attendance_df.empty:
+    # --- MONTHLY ATTENDANCE SUMMARY SECTION (VISIBLE TO BOTH ADMIN & VIEWER) ---
+    if not attendance_df.empty and "Month" in attendance_df.columns:
         with st.container(border=True):
             st.header("📊 Monthly Attendance Summary (%)")
             months = sorted(attendance_df["Month"].unique(), reverse=True)
