@@ -1,5 +1,4 @@
 import os
-import re
 import json
 import zipfile
 import importlib
@@ -89,32 +88,6 @@ def save_reviewed_map(workspace_dir: str, data: dict) -> None:
     path = os.path.join(workspace_dir, REVIEWED_FILE)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
-
-
-def _norm_token(val: str) -> str:
-    return re.sub(r"[^a-z0-9]", "", (val or "").strip().lower())
-
-
-def filter_df_for_viewer(df: pd.DataFrame, username: str, employee_name: str) -> pd.DataFrame:
-    if df.empty or "Employee" not in df.columns:
-        return df.iloc[0:0].copy()
-
-    raw_targets = [t.strip().lower() for t in [employee_name, username] if t and t.strip()]
-    norm_targets = [_norm_token(t) for t in raw_targets if _norm_token(t)]
-    if not raw_targets and not norm_targets:
-        return df.iloc[0:0].copy()
-
-    def _matches(emp_val) -> bool:
-        s = str(emp_val or "").strip().lower()
-        ns = _norm_token(s)
-        if any(s == rt or rt in s for rt in raw_targets):
-            return True
-        if any(ns == nt or (len(nt) >= 3 and nt in ns) for nt in norm_targets):
-            return True
-        return False
-
-    mask = df["Employee"].apply(_matches)
-    return df[mask].copy()
 
 
 st.markdown(
@@ -287,7 +260,7 @@ if not st.session_state.authenticated or not st.session_state.username:
                 new_user = st.text_input("Choose Username (letters & numbers only)")
                 new_pass = st.text_input("Choose Password (min 6 chars)", type="password")
                 reg_role = st.selectbox("Account Role", ["viewer", "admin"], help="First account created is automatically Admin.")
-                emp_display_name = st.text_input("Employee Name in Chat/Roster (also used for password recovery)")
+                emp_display_name = st.text_input("Employee Name in Chat/Roster (optional, used for password recovery)")
                 reg_submitted = st.form_submit_button("Register", use_container_width=True)
                 if reg_submitted:
                     ok, msg = _safe_register(new_user, new_pass, role=reg_role, employee_name=emp_display_name)
@@ -376,9 +349,7 @@ else:
                 st.success("Workspace files wiped (registered accounts kept safe).")
                 st.rerun()
         else:
-            st.info("You have view-only access. Only an Admin can upload files, edit statuses, or clear workspace data.")
-            if current_emp_name:
-                st.caption(f"Linked Name: **{current_emp_name}**")
+            st.info("You have view-only access to all attendance records. Only an Admin can upload files, edit statuses, or clear workspace data.")
             if os.path.exists(uploaded_zip_path):
                 uploaded_zip = uploaded_zip_path
 
@@ -390,7 +361,7 @@ else:
             st.caption("logo.png missing")
 
     with h_title:
-        workspace_label = "(Admin Workspace)" if is_admin else "(Employee View-Only)"
+        workspace_label = "(Admin Workspace)" if is_admin else "(All Attendance View-Only)"
         st.markdown(
             f"<h1 style='margin:0;font-size:2rem;line-height:1.15;'>TechNaka Attendance Analyzer<br>"
             f"<span style='font-size:1.55rem;font-weight:600;'>{workspace_label}</span></h1>",
@@ -412,7 +383,6 @@ else:
 
     cal_focus_date = date.today()
     attendance_df = pd.DataFrame()
-    all_employees_in_chat = []
     daily_report = pd.DataFrame()
     selected_date = None
 
@@ -452,18 +422,6 @@ else:
                                 return pd.Series([row["Status"], ""])
 
                             attendance_df[["Status", "Reviewed By"]] = attendance_df.apply(_apply_saved_review, axis=1)
-
-                        if "Employee" in attendance_df.columns:
-                            all_employees_in_chat = sorted(attendance_df["Employee"].dropna().astype(str).unique().tolist())
-
-                        if not is_admin:
-                            filtered_df = filter_df_for_viewer(attendance_df, current_user, current_emp_name)
-                            if filtered_df.empty and all_employees_in_chat:
-                                st.warning(
-                                    f"No exact record found for '{current_emp_name or current_user}'. "
-                                    f"Detected employees in chat: {', '.join(all_employees_in_chat[:10])}"
-                                )
-                            attendance_df = filtered_df
                     else:
                         st.warning("Chat file opened, but no valid messages matched the date/time format.")
         except Exception as e:
@@ -592,7 +550,7 @@ else:
                 if is_admin:
                     st.info("Upload your WhatsApp Attendance (.zip) file from the sidebar to view daily records.")
                 else:
-                    st.info("No matching daily attendance records found for your account yet.")
+                    st.info("No attendance data uploaded yet. Ask the Admin to upload the attendance ZIP.")
 
     with main_right:
         with st.container(border=True):
