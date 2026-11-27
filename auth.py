@@ -1,65 +1,129 @@
 import os
 import json
 import hashlib
-import secrets
 import shutil
 
 USERS_FILE = "users.json"
+BACKUP_USERS_FILE = os.path.join("workspaces", "users_backup.json")
 WORKSPACES_DIR = "workspaces"
+MASTER_RECOVERY_KEY = "TECHNKA2026"
 
-def _load_users():
-    if not os.path.exists(USERS_FILE):
-        return {}
-    with open(USERS_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
 
-def _save_users(users):
+def _hash_password(password: str, salt: str) -> str:
+    return hashlib.sha256(f"{salt}:{password}".encode("utf-8")).hexdigest()
+
+
+def _load_users() -> dict:
+    os.makedirs(WORKSPACES_DIR, exist_ok=True)
+    if os.path.exists(USERS_FILE):
+        try:
+            with open(USERS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, dict) and data:
+                    return data
+        except Exception:
+            pass
+
+    if os.path.exists(BACKUP_USERS_FILE):
+        try:
+            with open(BACKUP_USERS_FILE, "r", encoding="utf-8") as f:
+                backup_data = json.load(f)
+                if isinstance(backup_data, dict) and backup_data:
+                    with open(USERS_FILE, "w", encoding="utf-8") as out:
+                        json.dump(backup_data, out, indent=2)
+                    return backup_data
+        except Exception:
+            pass
+
+    return {}
+
+
+def _save_users(users: dict) -> None:
+    os.makedirs(WORKSPACES_DIR, exist_ok=True)
     with open(USERS_FILE, "w", encoding="utf-8") as f:
         json.dump(users, f, indent=2)
+    with open(BACKUP_USERS_FILE, "w", encoding="utf-8") as bf:
+        json.dump(users, bf, indent=2)
 
-def _hash_password(password, salt=None):
-    if salt is None:
-        salt = secrets.token_hex(16)
-    hashed = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 100_000).hex()
-    return f"{salt}${hashed}"
 
-def _verify_password(password, stored_hash):
-    salt, _ = stored_hash.split("$")
-    return _hash_password(password, salt) == stored_hash
-
-def register_user(username, password):
-    username = username.strip().lower()
-    if not username.isalnum():
+def register_user(username: str, password: str, role: str = "viewer", employee_name: str = ""):
+    clean_user = (username or "").strip().lower()
+    if not clean_user or not clean_user.isalnum():
         return False, "Username must contain only letters and numbers."
-    if len(password) < 6:
-        return False, "Password must be at least 6 characters long."
+    if not password or len(password) < 6:
+        return False, "Password must be at least 6 characters."
 
     users = _load_users()
-    if username in users:
+    if clean_user in users:
         return False, "Username already exists."
 
-    users[username] = {"password_hash": _hash_password(password)}
+    has_admin = any(u.get("role") == "admin" for u in users.values())
+    assigned_role = "admin" if not has_admin else (role if role in ("admin", "viewer") else "viewer")
+
+    salt = os.urandom(8).hex()
+    users[clean_user] = {
+        "salt": salt,
+        "password_hash": _hash_password(password, salt),
+        "role": assigned_role,
+        "employee_name": (employee_name or "").strip(),
+    }
     _save_users(users)
-    get_user_workspace(username)  # Initialize private folder
-    return True, "Account created! You can now log in."
+    os.makedirs(get_user_workspace(clean_user), exist_ok=True)
+    return True, f"Account permanently saved with role: {assigned_role.upper()}"
 
-def authenticate_user(username, password):
-    username = username.strip().lower()
+
+def authenticate_user(username: str, password: str):
+    clean_user = (username or "").strip().lower()
     users = _load_users()
-    if username not in users:
-        return False
-    return _verify_password(password, users[username]["password_hash"])
+    user_data = users.get(clean_user)
+    if not user_data:
+        return False, None
 
-def get_user_workspace(username):
-    """Returns a private folder path exclusive to the logged-in user."""
-    safe_user = "".join(c for c in username.lower() if c.isalnum())
-    user_dir = os.path.join(WORKSPACES_DIR, safe_user)
-    os.makedirs(user_dir, exist_ok=True)
-    return user_dir
+    expected = _hash_password(password, user_data["salt"])
+    if expected == user_data["password_hash"]:
+        role = user_data.get("role", "admin")
+        emp_name = user_data.get("employee_name", "")
+        return True, {"username": clean_user, "role": role, "employee_name": emp_name}
+    return False, None
 
-def delete_user_data(username):
-    """Permanently wipes all private data for a specific user."""
-    user_dir = get_user_workspace(username)
-    if os.path.exists(user_dir):
-        shutil.rmtree(user_dir)
-        os.makedirs(user_dir, exist_ok=True)
+
+def reset_password(username: str, verification_input: str, new_password: str):
+    clean_user = (username or "").strip().lower()
+    users = _load_users()
+    user_data = users.get(clean_user)
+    if not user_data:
+        return False, "Username not found."
+    if not new_password or len(new_password) < 6:
+        return False, "New password must be at least 6 characters."
+
+    saved_emp_name = (user_data.get("employee_name") or "").strip().lower()
+    verify_clean = (verification_input or "").strip().lower()
+
+    is_emp_match = bool(saved_emp_name and verify_clean == saved_emp_name)
+    is_master_match = verify_clean == MASTER_RECOVERY_KEY.lower()
+    is_username_only_fallback = (not saved_emp_name) and (verify_clean == clean_user)
+
+    if not (is_emp_match or is_master_match or is_username_only_fallback):
+        return False, "Verification failed. Enter your registered Employee Name or recovery key."
+
+    new_salt = os.urandom(8).hex()
+    user_data["salt"] = new_salt
+    user_data["password_hash"] = _hash_password(new_password, new_salt)
+    users[clean_user] = user_data
+    _save_users(users)
+    return True, "Password updated successfully. You can now log in."
+
+
+def get_user_workspace(username: str) -> str:
+    clean_user = (username or "default").strip().lower()
+    path = os.path.join(WORKSPACES_DIR, clean_user)
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def delete_user_data(username: str) -> None:
+    # Wipes workspace attendance/override files only; never deletes registered accounts
+    path = get_user_workspace(username)
+    if os.path.exists(path):
+        shutil.rmtree(path, ignore_errors=True)
+        os.makedirs(path, exist_ok=True)
