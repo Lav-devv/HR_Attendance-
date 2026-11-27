@@ -119,4 +119,4 @@ def reset_password(username: str, verification_input: str, new_password: str):
     is_master_match = verify_clean == MASTER_RECOVERY_KEY.lower()
     is_username_only_fallback = (not saved_emp_name) and (verify_clean == clean_user)
 
-    if not (is_emp_match or is_master_match
+    if not (is_emp_match or is_master_match)
